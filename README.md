@@ -17,6 +17,7 @@
 11. [References](#11-references)
 
 ---
+<img width="1233" height="848" alt="pipeline" src="https://github.com/user-attachments/assets/bfb5ce87-26e9-40ae-a2f4-1de241b041d1" />
 
 ## 1. Project Overview
 
