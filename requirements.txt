@@ -1,0 +1,10 @@
+torch>=2.2
+monai>=1.3
+lungmask
+SimpleITK
+numpy>=1.26
+scipy>=1.11
+pandas>=2.0
+scikit-learn>=1.3
+matplotlib>=3.8
+tqdm

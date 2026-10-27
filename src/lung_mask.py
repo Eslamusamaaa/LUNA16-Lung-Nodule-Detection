@@ -45,34 +45,32 @@ def morphological_close(binary: np.ndarray,
     Uses 6-connectivity (face-connected) structuring element.
     """
     struct = generate_binary_structure(3, 1)   # 6-conn
-    return binary_closing(binary, structure=struct, iterations=iterations)
+    # scipy treats everything outside the volume as background, so closing would erode the air that touches the volume
+    # border (the scanner background) and it would no longer be recognised as external air in step 4. Padding with the
+    # edge values keeps that air attached to the border.
+    padded = np.pad(binary, iterations, mode="edge")
+    closed = binary_closing(padded, structure=struct, iterations=iterations)
+    return closed[(slice(iterations, -iterations),) * 3]
 
 
 def remove_border_components(binary: np.ndarray) -> np.ndarray:
     """
-    Steps 3 & 4 — Label components, then remove any that touch the volume border.
+    Steps 3 & 4 — Label components, then remove any that touch the in-plane (x/y) volume border.
     Components touching the border are external air (scanner table, room air).
     Returns a bool mask of only internal air regions.
     """
     struct = generate_binary_structure(3, 3)   # 26-conn
-    labeled, _ = cc_label(binary, structure=struct)
-
-    # Collect every label that appears on any face of the volume
-    border_labels = set()
-    for face in [
-        labeled[0],  labeled[-1],
-        labeled[:, 0],  labeled[:, -1],
-        labeled[:, :, 0], labeled[:, :, -1],
-    ]:
-        border_labels.update(np.unique(face))
-
-    border_labels.discard(0)   # 0 = background (non-air)
-
-    internal = labeled.copy()
-    for lbl in border_labels:
-        internal[internal == lbl] = 0
-
-    return internal > 0
+    labeled, n = cc_label(binary, structure=struct)
+    if n == 0:
+        return np.zeros_like(binary, dtype=bool)
+    # Only the in-plane edges count as "border": scans are often cropped right at the lung apex/base, so lungs that touch
+    # the first or last axial slice must be kept (checking those faces too would delete a lung in such scans).
+    faces = [labeled[:, 0], labeled[:, -1], labeled[:, :, 0], labeled[:, :, -1]]
+    border_labels = np.unique(np.concatenate([f.ravel() for f in faces]))
+    keep = np.ones(n + 1, dtype=bool)
+    keep[0] = False                 # 0 = background (non-air)
+    keep[border_labels] = False
+    return keep[labeled]            # one lookup instead of one full-volume pass per label
 
 
 def keep_two_largest(binary: np.ndarray) -> np.ndarray:
@@ -82,20 +80,11 @@ def keep_two_largest(binary: np.ndarray) -> np.ndarray:
     """
     struct = generate_binary_structure(3, 3)
     labeled, n = cc_label(binary, structure=struct)
-
     if n == 0:
         return binary
-
-    # Component sizes (labels are 1-based)
-    sizes = np.array([
-        (labeled == lbl).sum() for lbl in range(1, n + 1)
-    ])
-    top_labels = np.argsort(sizes)[-(min(2, n)):] + 1   # two largest labels
-
-    mask = np.zeros_like(binary)
-    for lbl in top_labels:
-        mask |= (labeled == lbl)
-    return mask
+    sizes = np.bincount(labeled.ravel())[1:]                 # voxels per component
+    top_labels = np.argsort(sizes)[-min(2, n):] + 1          # two largest labels
+    return np.isin(labeled, top_labels)
 
 
 def fill_interior(binary: np.ndarray) -> np.ndarray:
